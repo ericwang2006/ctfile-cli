@@ -15,18 +15,28 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const (
-	UserAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
-	DefaultAPIUrl = "https://api.umpsa.top"
-	Aria2cBaseURL = "https://github.com/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
+	UserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+	DefaultAPIUrl     = "https://api.umpsa.top"
+	Aria2cBaseURL     = "https://github.com/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
+	Aria2cBackupURL   = "https://xget.xi-xu.me/gh/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
 )
 
 // DownloadInfo 结构体用于解析JSON响应
 type DownloadInfo struct {
 	Key  string `json:"key"`
 	Name string `json:"name"`
+}
+
+// IPInfo 结构体用于解析IP位置信息
+type IPInfo struct {
+	Country     string `json:"country"`
+	CountryCode string `json:"countryCode"`
+	Query       string `json:"query"`
+	Status      string `json:"status"`
 }
 
 func main() {
@@ -145,7 +155,7 @@ func ensureAria2c() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("获取程序路径失败: %v", err)
 	}
-	
+
 	scriptDir := filepath.Dir(executablePath)
 
 	// 根据操作系统选择aria2c可执行文件
@@ -170,15 +180,41 @@ func ensureAria2c() (string, error) {
 
 	// 构造下载文件名
 	archiveName := getArchiveName()
-	downloadURL := Aria2cBaseURL + archiveName
-
-	// 下载压缩包到临时文件
 	tempDir := os.TempDir()
 	archivePath := filepath.Join(tempDir, archiveName)
-	err = downloadFile(downloadURL, archivePath)
-	if err != nil {
-		return "", fmt.Errorf("下载aria2c失败: %v", err)
+
+	// 检测用户IP位置并选择下载策略
+	isChina := isChineseIP()
+
+	var primaryURL, backupURL string
+	if isChina {
+		// 中国大陆IP优先使用备用地址
+		primaryURL = Aria2cBackupURL + archiveName
+		backupURL = Aria2cBaseURL + archiveName
+		fmt.Println("检测到中国大陆IP，优先使用备用下载地址")
+	} else {
+		// 其他地区使用原始地址
+		primaryURL = Aria2cBaseURL + archiveName
+		backupURL = Aria2cBackupURL + archiveName
+		fmt.Println("使用标准下载地址")
 	}
+
+	fmt.Printf("尝试从主要地址下载: %s\n", primaryURL)
+	err = downloadFile(primaryURL, archivePath)
+	if err != nil {
+		fmt.Printf("主要地址下载失败: %v\n", err)
+		fmt.Println("尝试从备用地址下载...")
+
+		// 清理可能存在的不完整文件
+		os.Remove(archivePath)
+
+		fmt.Printf("尝试从备用地址下载: %s\n", backupURL)
+		err = downloadFile(backupURL, archivePath)
+		if err != nil {
+			return "", fmt.Errorf("所有下载地址都失败 - 主要地址: %v, 备用地址: %v", err, err)
+		}
+	}
+
 	defer os.Remove(archivePath) // 确保清理临时文件
 
 	fmt.Println("下载完成，正在解压...")
@@ -247,7 +283,7 @@ func extractAria2cFromTarGz(src, destDir, binaryName string) error {
 				return err
 			}
 			f.Close()
-			
+
 			fmt.Printf("成功提取 %s 到 %s\n", binaryName, targetPath)
 			return nil
 		}
@@ -393,4 +429,67 @@ func extractFilename(redirectURL string) (string, error) {
 	}
 
 	return decodedName, nil
+}
+
+// isChineseIP 检测用户是否为中国大陆IP
+func isChineseIP() bool {
+	// 创建带超时的HTTP客户端
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// 使用免费的IP地理位置API服务
+	apis := []string{
+		"http://ip-api.com/json/?fields=status,country,countryCode,query",
+		"https://ipapi.co/json/",
+		"https://api.ipify.org?format=json", // 备用简单API
+	}
+
+	for _, apiURL := range apis {
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", UserAgent)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+
+		// 尝试解析IP-API的响应格式
+		var ipInfo IPInfo
+		err = json.Unmarshal(body, &ipInfo)
+		if err == nil && ipInfo.Status == "success" {
+			// 检查是否为中国大陆
+			return ipInfo.CountryCode == "CN" || strings.Contains(strings.ToLower(ipInfo.Country), "china")
+		}
+
+		// 尝试解析ipapi.co的响应格式
+		var ipapiInfo struct {
+			CountryCode string `json:"country_code"`
+			Country     string `json:"country_name"`
+		}
+		err = json.Unmarshal(body, &ipapiInfo)
+		if err == nil && ipapiInfo.CountryCode != "" {
+			return ipapiInfo.CountryCode == "CN" || strings.Contains(strings.ToLower(ipapiInfo.Country), "china")
+		}
+
+		// 如果API调用成功但无法确定位置，继续尝试下一个API
+	}
+
+	// 如果所有API都失败，默认不是中国大陆IP（使用原始下载地址）
+	fmt.Println("无法检测IP位置，使用默认下载策略")
+	return false
 }
