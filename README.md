@@ -47,6 +47,12 @@ ctfile-cli [选项] ctfile://<xtlink>
 ./ctfile-cli -api https://your-api-server.com ctfile://your_xtlink_here
 ```
 
+## 视频教程
+
+- [YouTube](https://youtu.be/tg0VcTz7TjI)
+- [B站](https://www.bilibili.com/video/BV1oFhkz3Epi/)
+- [抖音](https://www.douyin.com/video/7545157899498163519)
+
 ## 工作原理
 
 1. 解析城通网盘链接，提取 `xtlink` 参数
@@ -120,3 +126,4 @@ aria2c 支持断点续传，重新运行命令即可继续下载。
 ## 免责声明
 
 本项目仅供学习交流使用，无任何盈利/售卖行为，请勿用于非法用途，否则后果自负
+
