@@ -23,6 +23,9 @@ const (
 	DefaultAPIUrl     = "https://api.umpsa.top"
 	Aria2cBaseURL     = "https://github.com/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
 	Aria2cBackupURL   = "https://xget.xi-xu.me/gh/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
+	// macOS专用下载地址
+	Aria2cMacOSBaseURL   = "https://github.com/ericwang2006/aria2c-macos-standalone-binary/releases/download/v25.9.4/"
+	Aria2cMacOSBackupURL = "https://xget.xi-xu.me/gh/ericwang2006/aria2c-macos-standalone-binary/releases/download/v25.9.4/"
 )
 
 // DownloadInfo 结构体用于解析JSON响应
@@ -187,16 +190,32 @@ func ensureAria2c() (string, error) {
 	isChina := isChineseIP()
 
 	var primaryURL, backupURL string
-	if isChina {
-		// 中国大陆IP优先使用备用地址
-		primaryURL = Aria2cBackupURL + archiveName
-		backupURL = Aria2cBaseURL + archiveName
-		fmt.Println("检测到中国大陆IP，优先使用备用下载地址")
+
+	// 为macOS系统使用专门的下载地址
+	if runtime.GOOS == "darwin" {
+		if isChina {
+			// 中国大陆IP优先使用备用地址
+			primaryURL = Aria2cMacOSBackupURL + archiveName
+			backupURL = Aria2cMacOSBaseURL + archiveName
+			fmt.Println("检测到中国大陆IP，使用macOS专用备用下载地址")
+		} else {
+			// 其他地区使用原始地址
+			primaryURL = Aria2cMacOSBaseURL + archiveName
+			backupURL = Aria2cMacOSBackupURL + archiveName
+			fmt.Println("使用macOS专用标准下载地址")
+		}
 	} else {
-		// 其他地区使用原始地址
-		primaryURL = Aria2cBaseURL + archiveName
-		backupURL = Aria2cBackupURL + archiveName
-		fmt.Println("使用标准下载地址")
+		if isChina {
+			// 中国大陆IP优先使用备用地址
+			primaryURL = Aria2cBackupURL + archiveName
+			backupURL = Aria2cBaseURL + archiveName
+			fmt.Println("检测到中国大陆IP，优先使用备用下载地址")
+		} else {
+			// 其他地区使用原始地址
+			primaryURL = Aria2cBaseURL + archiveName
+			backupURL = Aria2cBackupURL + archiveName
+			fmt.Println("使用标准下载地址")
+		}
 	}
 
 	fmt.Printf("尝试从主要地址下载: %s\n", primaryURL)
@@ -225,7 +244,7 @@ func ensureAria2c() (string, error) {
 		return "", fmt.Errorf("解压失败: %v", err)
 	}
 
-	// Linux系统需要添加执行权限
+	// Linux和macOS系统需要添加执行权限
 	if runtime.GOOS != "windows" {
 		err = os.Chmod(aria2cPath, 0755)
 		if err != nil {

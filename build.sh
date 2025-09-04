@@ -48,6 +48,12 @@ strip_binary() {
     local goarch=$2
     local binary_path=$3
     
+    # 对于 macOS 目标，直接跳过 strip 处理
+    if [ "$goos" = "darwin" ]; then
+        echo "  [INFO] Skipping strip for macOS binary"
+        return 0
+    fi
+
     # 获取当前系统架构
     local host_os=$(go env GOOS)
     local host_arch=$(go env GOARCH)
@@ -144,16 +150,6 @@ strip_binary() {
     if [ "$use_cross_strip" = true ]; then
         echo "  [INFO] Cross-compilation detected ($host_os/$host_arch -> $goos/$goarch)"
         echo "  [INFO] No cross-strip tool found for $goos/$goarch, skipping strip"
-        echo "  [TIP] Install cross-compilation tools:"
-        echo "        # For ARM architectures:"
-        echo "        sudo apt-get install binutils-aarch64-linux-gnu binutils-arm-linux-gnueabihf"
-        echo "        # For MIPS architectures:"
-        echo "        sudo apt-get install binutils-mips-linux-gnu binutils-mipsel-linux-gnu"
-        echo "        sudo apt-get install binutils-mips64-linux-gnuabi64 binutils-mips64el-linux-gnuabi64"
-        echo "        # For Windows cross-compilation:"
-        echo "        sudo apt-get install binutils-mingw-w64"
-        echo "        # For i686 (32-bit) support:"
-        echo "        sudo apt-get install gcc-multilib"
         return 0
     fi
     
@@ -211,7 +207,7 @@ compress_binary() {
             echo "Failed to compress $desc"
         fi
     else
-        # Linux系统：压缩成tar.gz，内部文件名为ctfile-cli
+        # Linux/macOS系统：压缩成tar.gz，内部文件名为ctfile-cli
         local inner_name="ctfile-cli"
         cp "$temp_binary" "$compress_dir/$inner_name"
         
@@ -241,6 +237,8 @@ build_target "linux" "mips64" "" "ctfile-cli_linux_mips64" "MIPS64 Linux"
 build_target "linux" "mips64le" "" "ctfile-cli_linux_mips64le" "MIPS64EL Linux"
 build_target "linux" "amd64" "" "ctfile-cli_linux_amd64" "x86_64 Linux"
 build_target "linux" "386" "" "ctfile-cli_linux_386" "i686 Linux"
+build_target "darwin" "amd64" "" "ctfile-cli_darwin_amd64" "x86_64 macOS"
+build_target "darwin" "arm64" "" "ctfile-cli_darwin_arm64" "ARM64 macOS"
 build_target "windows" "amd64" "" "ctfile-cli_windows_amd64.exe" "x86_64 Windows"
 build_target "windows" "386" "" "ctfile-cli_windows_386.exe" "i686 Windows"
 
