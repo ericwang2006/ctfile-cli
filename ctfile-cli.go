@@ -21,6 +21,7 @@ import (
 const (
 	UserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
 	DefaultAPIUrl     = "https://api.umpsa.top"
+	DefaultThreads    = 64
 	Aria2cBaseURL     = "https://github.com/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
 	Aria2cBackupURL   = "https://xget.xi-xu.me/gh/ericwang2006/aria2-static-build-binaries/releases/download/v25.8.30/"
 	// macOS专用下载地址
@@ -45,10 +46,18 @@ type IPInfo struct {
 func main() {
 	// 定义命令行参数
 	var apiURL string
+	var threads int
 	flag.StringVar(&apiURL, "api", DefaultAPIUrl, "指定API服务器URL")
+	flag.IntVar(&threads, "threads", DefaultThreads, "指定下载线程数")
 
 	// 解析命令行参数
 	flag.Parse()
+
+	// 验证线程数参数
+	if threads < 1 {
+		fmt.Println("错误: 线程数必须大于0")
+		os.Exit(1)
+	}
 
 	// 获取非flag参数
 	args := flag.Args()
@@ -133,12 +142,15 @@ func main() {
 		os.Exit(2)
 	}
 
-	// 调用 aria2c
+	// 调用 aria2c，使用指定的线程数
+	threadsStr := fmt.Sprintf("%d", threads)
+	fmt.Printf("使用 %d 个线程下载\n", threads)
+
 	cmd := exec.Command(aria2cPath,
 		"-o", filename,
 		"-V",
-		"-x64",
-		"-s64",
+		"-x"+threadsStr,
+		"-s"+threadsStr,
 		"--header=User-Agent: "+UserAgent,
 		downloadURL)
 	cmd.Stdout = os.Stdout
