@@ -47,8 +47,10 @@ func main() {
 	// 定义命令行参数
 	var apiURL string
 	var threads int
+	var password string
 	flag.StringVar(&apiURL, "api", DefaultAPIUrl, "指定API服务器URL")
 	flag.IntVar(&threads, "threads", DefaultThreads, "指定下载线程数")
+	flag.StringVar(&password, "password", "", "指定下载密码（如果需要）")
 
 	// 解析命令行参数
 	flag.Parse()
@@ -86,6 +88,9 @@ func main() {
 
 	// 获取 download_info JSON
 	infoURL := fmt.Sprintf("%s/download_info?xtlink=%s", apiURL, xtlink)
+	if password != "" {
+		infoURL = fmt.Sprintf("%s&password=%s", infoURL, url.QueryEscape(password))
+	}
 	fmt.Printf("使用API服务器: %s\n", apiURL)
 
 	client := &http.Client{}
@@ -126,6 +131,9 @@ func main() {
 	fileID := downloadInfos[0].Key
 	// 构造下载链接
 	downloadURL := fmt.Sprintf("%s/download?xtlink=%s&file_id=%s", apiURL, xtlink, fileID)
+	if password != "" {
+		downloadURL = fmt.Sprintf("%s&password=%s", downloadURL, url.QueryEscape(password))
+	}
 	fmt.Printf("下载链接：%s\n", downloadURL)
 
 	// 获取重定向后的URL以提取文件名
