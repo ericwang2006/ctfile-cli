@@ -452,8 +452,8 @@ func getRedirectURL(downloadURL string) (string, error) {
 
 // extractFilename 从URL中提取并解码文件名
 func extractFilename(redirectURL string) (string, error) {
-	// 使用正则表达式提取 downname 参数
-	re := regexp.MustCompile(`downname=([^&]*)`)
+	// 优先尝试 downname 参数，其次 fname 参数
+	re := regexp.MustCompile(`[?&](?:downname|fname)=([^&]*)`)
 	matches := re.FindStringSubmatch(redirectURL)
 	if len(matches) < 2 {
 		return "download_file", nil // 默认文件名
