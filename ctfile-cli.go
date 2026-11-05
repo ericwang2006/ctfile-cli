@@ -136,18 +136,26 @@ func main() {
 	}
 	fmt.Printf("下载链接：%s\n", downloadURL)
 
-	// 获取重定向后的URL以提取文件名
-	redirectURL, err := getRedirectURL(downloadURL)
-	if err != nil {
-		fmt.Printf("获取重定向URL失败: %v\n", err)
-		os.Exit(2)
-	}
+	// 优先使用 /download_info 返回的文件名，避免为了取文件名而多请求一次 /download。
+	// 如果 API 没有返回 name，再回退到原来的重定向解析方式。
+	filename := strings.TrimSpace(downloadInfos[0].Name)
+	if filename != "" {
+		// 文件夹下载时 name 可能是 "目录/文件" 形式，只取文件名部分
+		filename = filepath.Base(filename)
+	} else {
+		// 获取重定向后的URL以提取文件名
+		redirectURL, err := getRedirectURL(downloadURL)
+		if err != nil {
+			fmt.Printf("获取重定向URL失败: %v\n", err)
+			os.Exit(2)
+		}
 
-	// 从重定向URL中提取文件名
-	filename, err := extractFilename(redirectURL)
-	if err != nil {
-		fmt.Printf("提取文件名失败: %v\n", err)
-		os.Exit(2)
+		// 从重定向URL中提取文件名
+		filename, err = extractFilename(redirectURL)
+		if err != nil {
+			fmt.Printf("提取文件名失败: %v\n", err)
+			os.Exit(2)
+		}
 	}
 
 	// 调用 aria2c，使用指定的线程数
@@ -159,6 +167,11 @@ func main() {
 		"-V",
 		"-x"+threadsStr,
 		"-s"+threadsStr,
+		// 服务端限流/上游抖动时让 aria2 自己重试，而不是直接放弃该线程
+		"--max-tries=10",
+		"--retry-wait=3",
+		"--timeout=60",
+		"--connect-timeout=30",
 		"--header=User-Agent: "+UserAgent,
 		downloadURL)
 	cmd.Stdout = os.Stdout
