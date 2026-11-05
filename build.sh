@@ -8,6 +8,88 @@ export CGO_ENABLED=0
 LDFLAGS="-s -w"
 TRIMPATH="-trimpath"
 
+# ---- Go 工具链 ----
+# 使用 go-legacy-win7（https://github.com/thongtech/go-legacy-win7）编译。
+# 官方 Go 从 1.21 起放弃了对 Windows 7/8/8.1（及对应 Server）的支持，生成的
+# 程序会被标记为 10.0 而无法在 Win7 上启动；该 fork 会把 PE 目标版本重新标记为
+# 6.1 并回退到旧系统可用的 API，从而在 Win7 及更新的 Windows 上都能运行。
+GO_LEGACY_VERSION="${GO_LEGACY_VERSION:-1.27.3-1}"
+GO_LEGACY_DIR="${GO_LEGACY_DIR:-$HOME/.local/go-legacy-win7}"
+
+# 准备可用的 go 二进制，结果写入全局变量 GO_BIN
+setup_go_toolchain() {
+    # 1) 用户显式指定了 GO_BIN，直接使用（自行负责 GOROOT）
+    if [ -n "${GO_BIN:-}" ] && [ -x "$GO_BIN" ]; then
+        echo "Using Go toolchain from GO_BIN: $GO_BIN"
+        return 0
+    fi
+
+    # 2) 已经安装过 go-legacy-win7
+    if [ -x "$GO_LEGACY_DIR/bin/go" ]; then
+        GO_BIN="$GO_LEGACY_DIR/bin/go"
+        export GOROOT="$GO_LEGACY_DIR"
+        export PATH="$GO_LEGACY_DIR/bin:$PATH"
+        echo "Using existing go-legacy-win7: $GO_BIN"
+        return 0
+    fi
+
+    # 3) 自动下载并解压对应宿主平台/架构的工具链
+    local host_os host_arch arch
+    host_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    host_arch=$(uname -m)
+    case "$host_arch" in
+        x86_64|amd64)            arch="amd64" ;;
+        aarch64|arm64)           arch="arm64" ;;
+        armv7l|armv6l|arm)       arch="arm" ;;
+        i386|i486|i586|i686)     arch="386" ;;
+        *) echo "Unsupported host architecture: $host_arch" >&2; return 1 ;;
+    esac
+    case "$host_os" in
+        linux|darwin) : ;;
+        *) echo "Unsupported host OS: $host_os" >&2; return 1 ;;
+    esac
+
+    local url="https://github.com/thongtech/go-legacy-win7/releases/download/v${GO_LEGACY_VERSION}/go-legacy-win7-${GO_LEGACY_VERSION}.${host_os}_${arch}.tar.gz"
+    echo "Downloading go-legacy-win7 ${GO_LEGACY_VERSION} for ${host_os}/${arch}..."
+    echo "  $url"
+
+    local tmp
+    tmp="$(mktemp -d)"
+    if ! curl -fL --retry 3 -o "$tmp/go.tgz" "$url"; then
+        echo "Failed to download go-legacy-win7 toolchain." >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    mkdir -p "$tmp/x"
+    if ! tar -C "$tmp/x" -xzf "$tmp/go.tgz"; then
+        echo "Failed to extract go-legacy-win7 toolchain." >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    # 归档内顶层目录为 go-legacy-win7
+    local src="$tmp/x/go-legacy-win7"
+    if [ ! -d "$src" ] && [ -d "$tmp/x/go" ]; then
+        src="$tmp/x/go"
+    fi
+    if [ ! -d "$src" ]; then
+        echo "Unexpected toolchain archive layout." >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$GO_LEGACY_DIR")"
+    rm -rf "$GO_LEGACY_DIR"
+    mv "$src" "$GO_LEGACY_DIR"
+    rm -rf "$tmp"
+
+    GO_BIN="$GO_LEGACY_DIR/bin/go"
+    export GOROOT="$GO_LEGACY_DIR"
+    export PATH="$GO_LEGACY_DIR/bin:$PATH"
+    echo "[OK] Installed go-legacy-win7 at $GO_LEGACY_DIR"
+}
+
 # 创建输出目录
 mkdir -p dist
 mkdir -p temp
@@ -26,9 +108,9 @@ build_target() {
     local temp_binary="temp/$output"
     
     if [ -n "$goarm" ]; then
-        GOOS=$goos GOARCH=$goarch GOARM=$goarm go build $TRIMPATH -ldflags "$LDFLAGS" -o "$temp_binary" ctfile-cli.go
+        GOOS=$goos GOARCH=$goarch GOARM=$goarm "$GO_BIN" build $TRIMPATH -ldflags "$LDFLAGS" -o "$temp_binary" ctfile-cli.go
     else
-        GOOS=$goos GOARCH=$goarch go build $TRIMPATH -ldflags "$LDFLAGS" -o "$temp_binary" ctfile-cli.go
+        GOOS=$goos GOARCH=$goarch "$GO_BIN" build $TRIMPATH -ldflags "$LDFLAGS" -o "$temp_binary" ctfile-cli.go
     fi
     
     if [ $? -eq 0 ]; then
@@ -55,8 +137,8 @@ strip_binary() {
     fi
 
     # 获取当前系统架构
-    local host_os=$(go env GOOS)
-    local host_arch=$(go env GOARCH)
+    local host_os=$("$GO_BIN" env GOOS)
+    local host_arch=$("$GO_BIN" env GOARCH)
     
     # 根据目标平台选择合适的strip工具
     local strip_cmd="strip"
@@ -227,6 +309,14 @@ compress_binary() {
     # 清理临时压缩目录
     rm -rf "$compress_dir"
 }
+
+# 准备 Go 工具链（go-legacy-win7，兼容 Windows 7）
+if ! setup_go_toolchain; then
+    echo "Failed to prepare Go toolchain. Aborting." >&2
+    exit 1
+fi
+echo "Go version: $("$GO_BIN" version)"
+echo
 
 # 构建所有目标平台
 build_target "linux" "arm" "7" "ctfile-cli_linux_arm" "ARM Linux"
